@@ -54,7 +54,7 @@ class SP_Payment_Gateway extends WC_Payment_Gateway
 
         // Set stripe API key.
         \Stripe\Stripe::setApiKey($this->secret_key);
-        \Stripe\Stripe::setAppInfo('WordPress payment-gateway-stripe-and-woocommerce-integration', EH_STRIPE_VERSION, 'https://wordpress.org/plugins/payment-gateway-stripe-and-woocommerce-integration/');
+        \Stripe\Stripe::setAppInfo('WordPress freeit-payment-gateway');
     }
 
     /**
@@ -93,7 +93,7 @@ class SP_Payment_Gateway extends WC_Payment_Gateway
         echo '<div class="status-box">';
 
         if ($this->description) {
-            echo apply_filters('eh_stripe_desc', wpautop(wp_kses_post("<span>" . $this->description . "</span>")));
+            echo apply_filters('sp_stripe_desc', wpautop(wp_kses_post("<span>" . $this->description . "</span>")));
         }
         echo "</div>";
     }
@@ -479,15 +479,6 @@ class SP_Payment_Gateway extends WC_Payment_Gateway
             "balance_amount" => 0,
             "origin_time" => $trans_time
         );
-        if (0 === count(get_post_meta($order_id, '_eh_stripe_payment_balance'))) {
-            if ($charge_parsed['captured'] === 'Captured') {
-                $tranaction_data['balance_amount'] = $charge_parsed['amount'];
-            }
-            add_post_meta($order_id, '_eh_stripe_payment_balance', $tranaction_data);
-        } else {
-            $tranaction_data['balance_amount'] = $charge_parsed['amount'];
-            update_post_meta($order_id, '_eh_stripe_payment_balance', $tranaction_data);
-        }
         return $charge_parsed;
     }
 

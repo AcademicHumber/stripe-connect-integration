@@ -4,12 +4,12 @@ class SP_Stripe_Log
 {
     public static function init_live_log()
     {
-        $content = "<------------------- Stripe Payment Live Log File ( " . EH_STRIPE_VERSION . " ) ------------------->\n";
+        $content = "<------------------- Stripe Payment Live Log File ( " . SP_VERSION . " ) ------------------->\n";
         return $content;
     }
     public static function init_dead_log()
     {
-        $content = "<------------------- Stripe Payment Dead Log File ( " . EH_STRIPE_VERSION . " ) ------------------->\n";
+        $content = "<------------------- Stripe Payment Dead Log File ( " . SP_VERSION . " ) ------------------->\n";
         return $content;
     }
     public static function log_update($type, $msg, $title)
