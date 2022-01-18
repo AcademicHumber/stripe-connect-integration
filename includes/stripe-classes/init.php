@@ -48,14 +48,23 @@ class Sp_Checkout_Init
         if (!empty($settings['enabled'])  && $settings['enabled'] == 'yes') {
             add_action('wp_ajax_wpcf_stripe_disconnect', array($this, 'stripe_disconnect'));
             add_filter('woocommerce_available_payment_gateways', array($this, 'filter_gateways'), 1);
+            $this->setup_api_handler();
         }
+    }
+
+    /**
+     * Initialize the main class to create routes and endpoints for Stripe Webhooks
+     */
+    function setup_api_handler()
+    {
+        include(SP_MAIN_PATH . "includes/stripe-classes/class-api-handler.php");
+        new SP_Api_Handler();
     }
 
     public function generate_stripe_connect_form()
     {
         wp_enqueue_script('dashboard-script', SP_PLUGIN_URL . 'assets/js/dashboard.js', array('jquery'), 1.0, true);
 
-        $this->capture_on_hold_payments(191);
 
         $stripe_user_id = $this->get_authorized_from_stripe_application();
         $authorize_request_body = array(
@@ -161,55 +170,5 @@ class Sp_Checkout_Init
         } else {
             die(json_encode(array('success' => 0, 'message' => __('Something went wrong, please try again', 'stripe-payment'), 'redirect' => $redirect)));
         }
-    }
-
-    /**
-     * Check on hold orders of a campaign
-     */
-    function capture_on_hold_payments($campaign_id)
-    {
-        $on_hold_orders = $this->get_orders_ids_by_product_id($campaign_id, array('wc-on-hold'));
-        echo '<pre>';
-        print_r($on_hold_orders);
-        echo '</pre>';
-        if (!empty($on_hold_orders)) {
-            foreach ($on_hold_orders as $order_id) {
-
-                $order = wc_get_order($order_id);
-                $payment_intent = get_post_meta($order_id, '_sp_payment_id', true);
-                $order_status = $order->status;
-                if (!empty($payment_intent) && $order_status == 'on-hold') {
-                    echo "Order " . $order_id . " - Status " . $order_status . " - Payment Intent ID: " . $payment_intent;
-                    echo '<br>';
-                }
-            }
-        }
-    }
-
-    /**
-     * Get All orders IDs for a given product ID.
-     *
-     * @param  integer  $product_id (required)
-     * @param  array    $order_status (optional) Default is 'wc-completed'
-     *
-     * @return array
-     */
-    function get_orders_ids_by_product_id($product_id, $order_status = array('wc-completed'))
-    {
-        global $wpdb;
-
-        $results = $wpdb->get_col("
-        SELECT order_items.order_id
-        FROM {$wpdb->prefix}woocommerce_order_items as order_items
-        LEFT JOIN {$wpdb->prefix}woocommerce_order_itemmeta as order_item_meta ON order_items.order_item_id = order_item_meta.order_item_id
-        LEFT JOIN {$wpdb->posts} AS posts ON order_items.order_id = posts.ID
-        WHERE posts.post_type = 'shop_order'
-        AND posts.post_status IN ( '" . implode("','", $order_status) . "' )
-        AND order_items.order_item_type = 'line_item'
-        AND order_item_meta.meta_key = '_product_id'
-        AND order_item_meta.meta_value = '$product_id'
-    ");
-
-        return $results;
     }
 }
