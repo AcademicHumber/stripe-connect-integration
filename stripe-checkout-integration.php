@@ -88,6 +88,15 @@ function sp_plugin_init()
     }
 }
 
+/**
+ * Returns an instance of the usefull functions of the plugin
+ */
+function sp_functions()
+{
+    require_once(SP_MAIN_PATH . "includes/stripe-classes/functions.php");
+    return new Stripe_Payment_Functions();
+}
+
 //initialises log file
 function sp_stripe_init_log()
 {
