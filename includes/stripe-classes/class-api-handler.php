@@ -2,6 +2,7 @@
 
 class SP_Api_Handler
 {
+    private $endpoint_secret;
 
     function __construct()
     {
@@ -10,12 +11,21 @@ class SP_Api_Handler
 
         // Check cron job
         add_action('init', array($this, 'check_cron_job'));
+
+        // Set endpoint secret key
+        add_action('init', array($this, 'set_endpoint_secret_key'));
+    }
+
+    public function set_endpoint_secret_key()
+    {
+        $stripe_gateway = WC()->payment_gateways->payment_gateways()['sp_stripe_checkout'];
+        $this->endpoint_secret = $stripe_gateway->get_option('endpoint_secret') ?: null;
     }
 
     /**
-     * If the stripe_biller cron job has no functions attatched, add the needed one
+     * If the stripe_biller cron job has no functions attached, add the needed one
      */
-    function check_cron_job($campaign_id)
+    function check_cron_job()
     {
         if (!has_action('stripe_biller')) {
             add_action('stripe_biller', array($this, 'capture_on_hold_payments'));
@@ -29,12 +39,26 @@ class SP_Api_Handler
             'methods'   => WP_REST_Server::CREATABLE,
             'callback'  => array($this, 'sp_endpoint')
         ]);
+
+        // register_rest_route('stripe-payment/v1', '/stripe', [
+        //     'methods'   => WP_REST_Server::READABLE,
+        //     'callback'  => array($this, 'test')
+        // ]);
     }
+
+    // function test($request)
+    // {
+    //     $product_id = $_GET['id'];
+    //     $this->capture_on_hold_payments($product_id);
+    //     return rest_ensure_response('Done');
+    // }
 
     function sp_endpoint(WP_REST_Request $request)
     {
+        if (!$this->endpoint_secret) rest_ensure_response('No endpoint secret set');
+
         // Get the post_id from the value of '_stripe_intent_id' at the post_meta table
-        $endpoint_secret = 'whsec_of2fvvsqjKEa43kXk3ZsDXo02D9c2AW8';
+        $endpoint_secret = $this->endpoint_secret;
         $event           = $request->get_body();
         $signature       = $request->get_header('stripe_signature');
         try {
@@ -64,13 +88,33 @@ class SP_Api_Handler
                                             if ($scheduled)
                                                 SP_Stripe_Log::log_update('live', 'Scheduled stripe biller for campaign: ' . $product->get_id(), 'Stripe Scheduled biller event');
                                         }
-                                        //$this->capture_on_hold_payments($product->get_id());
+
+                                        // Uncomment for debugging
+                                        // $this->capture_on_hold_payments($product->get_id());
                                     }
                                 }
                             }
                         }
                     }
                     break;
+                case 'payment_intent.payment_failed':
+                    $payment_intent = $stripe_event->data->object;
+                    $payment_status = $payment_intent->status;
+
+                    switch ($payment_status) {
+                        case 'requires_payment_method':
+                            break;
+                        case 'insufficient_funds':
+                            break;
+                        case 'authentication_required':
+                            break;
+                        default:
+                            break;
+                    }
+
+                    SP_Stripe_Log::log_update('dead', 'Payment intent failed for campaign #', 'Stripe Payment failed');
+                    break;
+
                 default:
 
                     break;
@@ -86,6 +130,8 @@ class SP_Api_Handler
 
     /**
      * Gets the order's post ID from the database, querying for the meta value of '_stripe_checkout_session_id' that was saved when the order was created.
+     * 
+     * @return WC_Order Returns the order from the database or false if the session_id has no order attached
      */
     function get_order_from_session_id($session_id)
     {
@@ -138,48 +184,52 @@ class SP_Api_Handler
                     $application_fee = $total - $reciever_amount;
 
                     if ($stripe_receiver_account) {
-                        // Create payment intent
-                        $payment_intent = \Stripe\PaymentIntent::create(
-                            [
-                                'description'    => 'Campaign donation payment for order #' . $order->get_order_number(),
-                                'amount'         => $total,
-                                'currency'       => strtolower(get_woocommerce_currency()),
-                                'off_session'    => true,
-                                'confirm'        => true,
-                                'customer'       => $stripe_customer_id,
-                                'payment_method' => $payment_method,
-                                'application_fee_amount' => $application_fee,
-                                'on_behalf_of'           => $stripe_receiver_account,
-                                'transfer_data'          => [
-                                    'destination'        => $stripe_receiver_account,
-                                ],
-                            ]
-                        );
+                        try {
+                            // Create payment intent
+                            $payment_intent = \Stripe\PaymentIntent::create(
+                                [
+                                    'description'    => 'Campaign donation payment for order #' . $order->get_order_number(),
+                                    'amount'         => $total,
+                                    'currency'       => strtolower(get_woocommerce_currency()),
+                                    'off_session'    => true,
+                                    'confirm'        => true,
+                                    'customer'       => $stripe_customer_id,
+                                    'payment_method' => $payment_method,
+                                    'application_fee_amount' => $application_fee,
+                                    'on_behalf_of'           => $stripe_receiver_account,
+                                    'transfer_data'          => [
+                                        'destination'        => $stripe_receiver_account,
+                                    ],
+                                ]
+                            );
 
-                        $charge_details = $payment_intent->charges['data'];
+                            $charge_details = $payment_intent->charges['data'];
 
-                        foreach ($charge_details as $charge) {
-                            $charge_response = $charge;
-                        }
-
-                        $data = sp_functions()->make_charge_params($charge_response, $order_id);
-
-                        add_post_meta($order_id, '_sp_payment_id', $payment_intent->id);
-
-                        if ($data['paid'] == 'Paid') {
-
-                            if ($data['captured'] == 'Captured') {
-                                $order->payment_complete($data['id']);
-                            } else {
-                                $order->update_status('on-hold');
+                            foreach ($charge_details as $charge) {
+                                $charge_response = $charge;
                             }
+
+                            $data = sp_functions()->make_charge_params($charge_response, $order_id);
+
+                            add_post_meta($order_id, '_sp_payment_id', $payment_intent->id);
+
+                            if ($data['paid'] == 'Paid') {
+
+                                if ($data['captured'] == 'Captured') {
+                                    $order->payment_complete($data['id']);
+                                } else {
+                                    $order->update_status('on-hold');
+                                }
+                            }
+
+                            $order->set_transaction_id($data['transaction_id']);
+
+                            $order->add_order_note(__('Payment Status : ', 'payment-gateway-stripe-and-woocommerce-integration') . ucfirst($data['status']) . ' [ ' . $order_time . ' ] . ' . __('Source : ', 'payment-gateway-stripe-and-woocommerce-integration') . $data['source_type'] . '. ' . __('Charge Status :', 'payment-gateway-stripe-and-woocommerce-integration') . $data['captured'] . (is_null($data['transaction_id']) ? '' : '.' . __('Transaction ID : ', 'payment-gateway-stripe-and-woocommerce-integration') . $data['transaction_id']));
+                            add_post_meta($order_id, '_sp_stripe_payment_charge', $data);
+                            SP_Stripe_Log::log_update('live', $data, get_bloginfo('blogname') . ' - Charge - Order #' . $order_id);
+                        } catch (\Throwable $th) {
+                            SP_Stripe_Log::log_update('dead', $th, 'Stripe payment failed for campaign #' . $order_id);
                         }
-
-                        $order->set_transaction_id($data['transaction_id']);
-
-                        $order->add_order_note(__('Payment Status : ', 'payment-gateway-stripe-and-woocommerce-integration') . ucfirst($data['status']) . ' [ ' . $order_time . ' ] . ' . __('Source : ', 'payment-gateway-stripe-and-woocommerce-integration') . $data['source_type'] . '. ' . __('Charge Status :', 'payment-gateway-stripe-and-woocommerce-integration') . $data['captured'] . (is_null($data['transaction_id']) ? '' : '.' . __('Transaction ID : ', 'payment-gateway-stripe-and-woocommerce-integration') . $data['transaction_id']));
-                        add_post_meta($order_id, '_sp_stripe_payment_charge', $data);
-                        SP_Stripe_Log::log_update('live', $data, get_bloginfo('blogname') . ' - Charge - Order #' . $order_id);
                     }
                 }
             }
@@ -210,7 +260,7 @@ class SP_Api_Handler
         AND order_items.order_item_type = 'line_item'
         AND order_item_meta.meta_key = '_product_id'
         AND order_item_meta.meta_value = '$product_id'
-        LIMIT 10
+        LIMIT 5
     ");
 
         return $results;
