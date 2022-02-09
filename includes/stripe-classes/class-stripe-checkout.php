@@ -100,7 +100,7 @@ class SP_Payment_Gateway extends WC_Payment_Gateway
 
     /**
      * loads stripe checkout scripts.
-     * @since 3.3.4
+     * 
      */
     public function payment_scripts()
     {
