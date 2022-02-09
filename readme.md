@@ -1,4 +1,4 @@
-# Stripe Checkout Integration with WP-CrowdFunding plugin
+# Stripe connect Integration with WP-CrowdFunding plugin
 
 This plugin handles the integration with stripe in order to use stripe connect with the WP-CrowdFunding plugin
 
@@ -9,7 +9,7 @@ This plugin handles the integration with stripe in order to use stripe connect w
 - Creates an endpoint in the WP Rest API that handles the events from stripe (You have to set up the webhook at Stripe).
 - Works with the 'minimum funding' feature, once a percentage of the funding has been reached, the plugin starts to bill all the on-hold orders.
 
-### Changes needed in WP-CrowdFunding Plugin
+## Changes needed in WP-CrowdFunding Plugin
 
 - Change the queries in WP-Crowdfunding functions class, you have to change this:
 
